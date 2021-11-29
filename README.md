@@ -1,7 +1,6 @@
-# Project-Data-Mining-1
 # Prediction of Air Pollution
 
-### Inês Rocha
+####  Inês Rocha (2019)
 
 ### Introduction
 
@@ -81,46 +80,18 @@ The second function
 Our data exploration consisted of seeing how air pollution changed in terms of certain parameters. By
 counting the number of AQI bigger then 100.
 
-## # A tibble: 4 x 2
-## # Groups: season [4]
-## season n
-## <fct> <int>
-## 1 spring 151
-## 2 summer 164
-## 3 fall 174
-## 4 winter 135
+`## # A tibble: 4 x 2`
+`## # Groups: season [4]`
+`## season n`
+`## <fct> <int>`
+`## 1 spring 151`
+`## 2 summer 164`
+`## 3 fall 174`
+`## 4 winter 135`
 
 We get that the fall is the season that has less polution and if we put this information into to a graph.
 
-
-```
-0
-```
-```
-50
-```
-```
-100
-```
-```
-150
-```
-```
-spring summer fall winter
-```
-#### season
-
-#### count
-
-#### class
-
-```
-Unhealthy for Sensitive Groups
-Unhealthy
-Very unhealthy
-Hazardous
-```
-## Number of bad air classifications per season
+## GRAF
 
 we see that besides the fall being better in terms of air quality it also is the season that doens ́t reach the
 maximun of the AQI classification.
@@ -128,19 +99,19 @@ maximun of the AQI classification.
 By doing the same as before but instead of the season we use the weekdays, we don ́t see a significant
 different between them.
 
-## # A tibble: 7 x 2
-## # Groups: weekdays [7]
-## weekdays n
-## <chr> <int>
-## 1 domingo 94
-## 2 quarta-feira 88
-## 3 quinta-feira 96
-## 4 sábado 97
-## 5 segunda-feira 80
-## 6 sexta-feira 85
-## 7 terça-feira 84
+`## # A tibble: 7 x 2`
+`## # Groups: weekdays [7]`
+`## weekdays n`
+`## <chr> <int>`
+`## 1 domingo 94`
+`## 2 quarta-feira 88`
+`## 3 quinta-feira 96`
+`## 4 sábado 97`
+`## 5 segunda-feira 80`
+`## 6 sexta-feira 85`
+`## 7 terça-feira 84`
 
-### Predictive Modelling: experimental setup and obtained results
+`### Predictive Modelling: experimental setup and obtained results`
 
 Because the object of the objective was to predict the level of air pollution it was decided that we were going
 to predict the AQI classification that is a nominal variable. To do that we will make classification predicts
@@ -169,32 +140,26 @@ To use these methods we need to pass them a few parameters:
 
 This is the result of this estimation for the data from the Huairou station:
 
-## [1] "Workflow: svm.v1"
-
-## [1] "Estimate: 0.5145833"
+`## [1] "Workflow: svm.v1"`
+`## [1] "Estimate: 0.5145833"`
 
 Even that the best accuracy was 0.5145833 it was still just a little above 50% of accuracy and that was not
 a satisfatory value for a model so we tried to repeat the same estimation, with the same parameters but
 including the AQI classification from the other stations.
 
-## [1] "Workflow: svm.v3"
-
-## [1] "Estimate: 0.4460870"
+`## [1] "Workflow: svm.v3"`
+`## [1] "Estimate: 0.4460870"`
 
 The accuracy went down. To see if this just happened is this data or if adding the AQI classification made
 our model worse was tried to run the same performance estimation with the data form Nongzhanguan.
 
-## [1] "Without other stations"
+`## [1] "Without other stations"`
+`## [1] "Workflow: svm.v1"`
+`## [1] "Estimate: 0.5145833"`
 
-## [1] "Workflow: svm.v1"
-
-## [1] "Estimate: 0.5145833"
-
-## [1] "With other stations"
-
-## [1] "Workflow: svm.v3"
-
-## [1] "Estimate: 0.4947826"
+`## [1] "With other stations"`
+`## [1] "Workflow: svm.v3"`
+`## [1] "Estimate: 0.4947826"`
 
 
 The results were the same as before. The model is better at predicting the AQI classification if the data has
@@ -206,17 +171,13 @@ classification would let people know if the air quality of the air was safe for 
 A safe classification corresponds to the AQI value been between 0-100 (classification good and moderate).
 This new tactic was tested on the data from the Huairou station, and this was the result:
 
-## [1] "Without other stations"
+`## [1] "Without other stations"`
+`## [1] "Workflow: svm.v1"`
+`## [1] "Estimate: 0.7591304"`
 
-## [1] "Workflow: svm.v1"
-
-## [1] "Estimate: 0.7591304"
-
-## [1] "With other stations"
-
-## [1] "Workflow: svm.v1"
-
-## [1] "Estimate: 0.7704348"
+`## [1] "With other stations"`
+`## [1] "Workflow: svm.v1"`
+`## [1] "Estimate: 0.7704348"`
 
 Beside having a much better accuracy, the accuracy increases if we add the data from other stations. We
 made a table showing each station with their model values.
