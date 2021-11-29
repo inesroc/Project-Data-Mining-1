@@ -195,7 +195,7 @@ made a table showing each station with their model values.
 #### Table 1: Model for each Station
 
 | Stations | Class | ClassAll | TwoClass | TwoClassAll | 
-| :-----| :-----: |-----: |   
+| -----| ----- |----- |   ----- |  ----- |  
 | Data_Aotizhongxin | svm.v1 -> 0.515 | svm.v1 -> 0.459| svm.v1 -> 0.752 | svm.v1 -> 0.   |
 | Data_Changping | svm.v3 -> 0.473 | svm.v1 -> 0.488| svm.v3 -> 0.772| svm.v1 -> 0.  |
 | Data_Dingling | rpart.v6 -> 0.492 | svm.v3 -> 0.467 | rpart.v6 -> 0.492 |svm.v1 -> 0.  |
