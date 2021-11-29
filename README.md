@@ -81,12 +81,19 @@ Our data exploration consisted of seeing how air pollution changed in terms of c
 counting the number of AQI bigger then 100.
 
 `## # A tibble: 4 x 2`
+
 `## # Groups: season [4]`
+
 `## season n`
+
 `## <fct> <int>`
+
 `## 1 spring 151`
+
 `## 2 summer 164`
+
 `## 3 fall 174`
+
 `## 4 winter 135`
 
 We get that the fall is the season that has less polution and if we put this information into to a graph.
