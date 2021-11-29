@@ -101,19 +101,21 @@ maximun of the AQI classification.
 By doing the same as before but instead of the season we use the weekdays, we don ́t see a significant
 different between them.
 
-`## # A tibble: 7 x 2`
-`## # Groups: weekdays [7]`
-`## weekdays n`
-`## <chr> <int>`
-`## 1 domingo 94`
-`## 2 quarta-feira 88`
-`## 3 quinta-feira 96`
-`## 4 sábado 97`
-`## 5 segunda-feira 80`
-`## 6 sexta-feira 85`
-`## 7 terça-feira 84`
+```
+## # A tibble: 7 x 2
+## # Groups: weekdays [7]
+## weekdays n
+## <chr> <int>
+## 1 domingo 94
+## 2 quarta-feira 88
+## 3 quinta-feira 96
+## 4 sábado 97
+## 5 segunda-feira 80
+## 6 sexta-feira 85
+## 7 terça-feira 84
 
-`### Predictive Modelling: experimental setup and obtained results`
+### Predictive Modelling: experimental setup and obtained results
+```
 
 Because the object of the objective was to predict the level of air pollution it was decided that we were going
 to predict the AQI classification that is a nominal variable. To do that we will make classification predicts
@@ -121,8 +123,6 @@ using the following methods:
 
 - Naive Bayes
 - Decision Trees
-
-
 - k-Nearest Neighbours
 - Support Vector Machines And to compare them we used the library Performance Estimation.
 
@@ -142,27 +142,33 @@ To use these methods we need to pass them a few parameters:
 
 This is the result of this estimation for the data from the Huairou station:
 
-`## [1] "Workflow: svm.v1"`
-`## [1] "Estimate: 0.5145833"`
+```
+## [1] "Workflow: svm.v1"
+## [1] "Estimate: 0.5145833"
+```
 
 Even that the best accuracy was 0.5145833 it was still just a little above 50% of accuracy and that was not
 a satisfatory value for a model so we tried to repeat the same estimation, with the same parameters but
 including the AQI classification from the other stations.
 
-`## [1] "Workflow: svm.v3"`
-`## [1] "Estimate: 0.4460870"`
+```
+## [1] "Workflow: svm.v3"
+## [1] "Estimate: 0.4460870"
+```
 
 The accuracy went down. To see if this just happened is this data or if adding the AQI classification made
 our model worse was tried to run the same performance estimation with the data form Nongzhanguan.
 
-`## [1] "Without other stations"`
-`## [1] "Workflow: svm.v1"`
-`## [1] "Estimate: 0.5145833"`
-
-`## [1] "With other stations"`
-`## [1] "Workflow: svm.v3"`
-`## [1] "Estimate: 0.4947826"`
-
+```
+## [1] "Without other stations"
+## [1] "Workflow: svm.v1"
+## [1] "Estimate: 0.5145833"
+```
+```
+## [1] "With other stations"
+## [1] "Workflow: svm.v3"
+## [1] "Estimate: 0.4947826"
+```
 
 The results were the same as before. The model is better at predicting the AQI classification if the data has
 only data from those stations.
@@ -172,36 +178,37 @@ predict 6 classes, we would be putting the model predicting only two classes: Sa
 classification would let people know if the air quality of the air was safe for them to go outside.
 A safe classification corresponds to the AQI value been between 0-100 (classification good and moderate).
 This new tactic was tested on the data from the Huairou station, and this was the result:
-
-`## [1] "Without other stations"`
-`## [1] "Workflow: svm.v1"`
-`## [1] "Estimate: 0.7591304"`
-
-`## [1] "With other stations"`
-`## [1] "Workflow: svm.v1"`
-`## [1] "Estimate: 0.7704348"`
+```
+## [1] "Without other stations"
+## [1] "Workflow: svm.v1"
+## [1] "Estimate: 0.7591304"
+```
+```
+## [1] "With other stations"
+## [1] "Workflow: svm.v1"
+## [1] "Estimate: 0.7704348"
+```
 
 Beside having a much better accuracy, the accuracy increases if we add the data from other stations. We
 made a table showing each station with their model values.
 
-```
-Table 1: Model for each Station
-```
-```
-stations Class ClassAll TwoClass TwoClassAll
-Data_Aotizhongxin svm.v1 -> 0.5145833 svm.v1 -> 0.4591304 svm.v1 -> 0.7521739 svm.v1 -> 0.
-Data_Changping svm.v3 -> 0.4729167 svm.v1 -> 0.4886957 svm.v3 -> 0.7721739 svm.v1 -> 0.
-Data_Dingling rpart.v6 -> 0.4920863 svm.v3 -> 0.4678261 rpart.v6 -> 0.4920863 svm.v1 -> 0.
-Data_Dongsi rpart.v6 -> 0.4920863 rpart.v5 -> 0.4878261 svm.v3 -> 0.7713043 svm.v1 -> 0.
-Data_Guanyuan svm.v1 -> 0.4921986 svm.v1 -> 0.4626087 svm.v1 -> 0.7495652 svm.v1 -> 0.
-Data_Gucheng svm.v1 -> 0.4619718 svm.v3 -> 0.4947826 svm.v3 -> 0.7443478 svm.v1 -> 0.
-Data_Huairou svm.v1 -> 0.5145833 svm.v3 -> 0.4460870 svm.v1 -> 0.7591304 svm.v1 -> 0.
-Data_Nongzhanguan svm.v1 -> 0.5145833 svm.v3 -> 0.4947826 svm.v1 -> 0.7713043 svm.v1 -> 0.
-Data_Shunyi svm.v3 -> 0.4664234 svm.v1 -> 0.4260870 svm.v3 -> 0.7747826 svm.v3 -> 0.
-Data_Tiantan svm.v1 -> 0.5104895 svm.v1 -> 0.4904348 svm.v1 -> 0.7660870 svm.v1 -> 0.
-Data_Wanliu svm.v1 -> 0.4781022 svm.v1 -> 0.4756522 svm.v3 -> 0.7513043 svm.v3 -> 0.
-Data_Wanshouxigong svm.v1 -> 0.4916667 svm.v1 -> 0.4800000 svm.v1 -> 0.7582609 svm.v1 -> 0.
-```
+#### Table 1: Model for each Station
+
+| Stations | Class | ClassAll | TwoClass | TwoClassAll | 
+| :-----| :-----: |-----: |   
+| Data_Aotizhongxin | svm.v1 -> 0.515 | svm.v1 -> 0.459| svm.v1 -> 0.752 | svm.v1 -> 0.   |
+| Data_Changping | svm.v3 -> 0.473 | svm.v1 -> 0.488| svm.v3 -> 0.772| svm.v1 -> 0.  |
+| Data_Dingling | rpart.v6 -> 0.492 | svm.v3 -> 0.467 | rpart.v6 -> 0.492 |svm.v1 -> 0.  |
+| Data_Dongsi | rpart.v6 -> 0.492 | rpart.v5 -> 0.487 | svm.v3 -> 0.771| svm.v1 -> 0.  |
+| Data_Guanyuan | svm.v1 -> 0.492 | svm.v1 -> 0.462| svm.v1 -> 0.750 | svm.v1 -> 0.  |
+| Data_Gucheng | svm.v1 -> 0.462 | svm.v3 -> 0.495 | svm.v3 -> 0.744 | svm.v1 -> 0.  |
+| Data_Huairou | svm.v1 -> 0.515 | svm.v3 -> 0.446 | svm.v1 -> 0.759 | svm.v1 -> 0.  |
+| Data_Nongzhanguan | svm.v1 -> 0.515 | svm.v3 -> 0.495 | svm.v1 -> 0.771 | svm.v1 -> 0.  |
+| Data_Shunyi | svm.v3 -> 0.466 | svm.v1 -> 0.426| svm.v3 -> 0.775 | svm.v3 -> 0.  |
+| Data_Tiantan | svm.v1 -> 0.510 | svm.v1 -> 0.490 | svm.v1 -> 0.766 | svm.v1 -> 0.  |
+| Data_Wanliu | svm.v1 -> 0.478 | svm.v1 -> 0.476 | svm.v3 -> 0.751 | svm.v3 -> 0.  |
+| Data_Wanshouxigong | svm.v1 -> 0.491 | svm.v1 -> 0.480 | svm.v1 -> 0.758| svm.v1 -> 0.  |
+
 After examining this table we can see that the value between the models when using the data form the other
 stations sometimes gives us a better prediction and sometimes don’t. The model that was chosen was the
 Support Vector Machines with a linear kernel (svm.v1). This model gives the best accuracy when predicting
