@@ -35,7 +35,7 @@ And also the CO pollutant needs to be divided by 100 to be at the same scale as 
 
 The AQI value is calculated using the following formula:
 
-![image](https://drive.google.com/uc?export=view&id=1bJC7pv36EfFcOT02QrW7lb6_OdEy-h2V)
+![Alt text](https://drive.google.com/uc?export=view&id=1bJC7pv36EfFcOT02QrW7lb6_OdEy-h2V)
 
 MaxCon and minCon are the maximum and the minimum concentration that our pollutant is in. MaxAqi
 and minAqi are the AQI values that belong to that concentration interval.
