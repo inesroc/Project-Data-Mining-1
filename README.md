@@ -40,6 +40,9 @@ maxAQI − minAQI
 maxCon − minCon
 ∗( polluent − minCon )+ minAQI
 ```
+
+![alt text](https://drive.google.com/file/d/1bJC7pv36EfFcOT02QrW7lb6_OdEy-h2V/view?usp=sharing)
+
 MaxCon and minCon are the maximum and the minimum concentration that our pollutant is in. MaxAqi
 and minAqi are the AQI values that belong to that concentration interval.
 
