@@ -1,0 +1,754 @@
+---
+title: "Prediction of Air Pollution"
+author: "Inês Rocha"
+header-includes:
+  - \usepackage{float}
+  - \floatplacement{figure}{H}  #make every figure with caption = h, this was the fix
+
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+This report details all the steps made to create the model.  
+First, we started with only one station but in the end, all stations were tested for the best model.
+
+## Problem Definition
+Each day our planet is getting more polluted and it's getting more and more needed to know how will the pollution be in the next day.  
+Given a set of data collected from 12 stations in China, we will use their data to choose a model that will help us warn people to be careful when doing any activity outside.
+
+## Data Pre-Processing
+
+```{r include=FALSE}
+library(dplyr)
+library(na.tools)
+library(tidyimpute)
+library(ggplot2)
+library(e1071)
+library(caret)
+library(glmnet)
+library(rpart)
+library(rpart.plot)
+library(performanceEstimation)
+library(nnet)
+library(knitr)
+library(kableExtra)
+
+directory <- getwd()
+setwd(directory)
+```
+
+It was created two functions to import, clean and process the data. The first function performs the following steps for all the 12 excel files from each station:
+
+1. Import the data using the function read.csv and convert it to a dyplyr table.
+2. Checks if there are NA values and if they exist the row will be removed.
+```{r eval=FALSE, include=FALSE}
+airPolution <- read.csv("DataExcel/PRSA_Data_Huairou_20130301-20170228.csv", header = TRUE)
+airPolution <- tbl_df(airPolution)
+airPol <- drop_rows_any_na(airPolution)
+```
+3. The first column is the number of the row so it will be removed.
+```{r eval=FALSE, include=FALSE}
+# remove the row number
+airPol <-airPol[-1]
+```
+4. Import the AQI Breakpoint table provided in the  [Evaluation of the Chinese New Air Quality Index](https://www.dcc.fc.up.pt/~rpribeiro/aulas/DMI1920/material/Gao_Fanyu.pdf "Evaluation of the Chinese New Air Quality Index"). TThis table has the breakpoints of each pollutant that will allow us to calculate the AQI value. 
+```{r eval=FALSE, include=FALSE}
+# Get AQI BreakPoint table
+aqiBreakpoints <- read.csv("DataExcel/breakpoints.csv", sep = ";", header = TRUE, na.strings = "?", dec = ",")
+```
+
+After examining the values from the AQI table and the data table, I realize that there were values from the pollutants that were bigger than the maximum possible for that pollutant in the AQI table. So those values were converted to the max present in the AQI table.
+```{r eval=FALSE, include=FALSE}
+# Mutate the values that go over the scale
+airPol <- airPol %>% mutate(PM10 = case_when(PM10 > 600 ~ 600, TRUE ~ PM10))
+airPol <- airPol %>% mutate(PM2.5 = case_when(PM2.5 > 500 ~ 500, TRUE ~ PM2.5))
+airPol <- airPol %>% mutate(SO2 = case_when(SO2 > 2620 ~ 2620, TRUE ~ SO2))
+airPol <- airPol %>% mutate(NO2 = case_when(NO2 > 940 ~ 940, TRUE ~ NO2))
+airPol <- airPol %>% mutate(CO = case_when(CO > 60 ~ 60, TRUE ~ CO))
+```
+
+And also the CO pollutant needs to be divided by 100 to be at the same scale as the AQI table.
+```{r eval=FALSE, include=FALSE}
+## the values are on the 100's but the table is on 10's
+airPol <- mutate(airPol, CO = CO/100)
+airPol <- airPol %>% mutate_at(vars(CO), list(~ round(.)))
+```
+5. Calculate the AQI Value
+
+The AQI value is calculated using the following formula: 
+
+$$\frac{maxAQI-minAQI}{maxCon-minCon}*(polluent-minCon)+minAQI$$
+
+MaxCon and minCon are the maximum and the minimum concentration that our pollutant is in. 
+MaxAqi and minAqi are the AQI values that belong to that concentration interval.
+
+The PM10, PM2.5, SO2, NO2, CO pollutants are calculated by their 24H average rounded value, and the O3 polluent is calculated using the 8H and 1H average rounded value and is chosen the bigger one. To make this step easier was created a function that given a data table with the pollutant already calculated by their average, it performs a cut using the AQI breakpoints of that pollutant that gives us the classification of that value. Then it searches the AQI breakpoints Table for that classification and extracts the MaxAqi, MinAqi, MinCon and MaxCon that the is used in the formula above.
+After having all the AQI values, they will be put in a data table and the bigger value of each row will be chosen and that will be the AQI value
+```{r eval=FALSE, include=FALSE}
+# This process that to much time to be able to run in this report
+getAQI <- function(polData,aqiData,indexPol,min,max,labelClass){
+  num <- as.numeric(unlist(polData[4]))
+  aqi <- as.numeric(unlist(aqiData[indexPol]))
+  aqiClass <- cut(num,breaks = aqi, labels = labelClass,include.lowest = TRUE)
+  temp <- data.frame()
+  for(class in aqiClass){
+    aqiValues <- aqiBreakpoints[aqiBreakpoints['Classification'] == class, c("AQI_Min","AQI_Max",min,max)] %>% drop_rows_any_na()
+    temp <- rbind(temp, aqiValues)
+  }
+  polData$minAQI=temp$AQI_Min
+  polData$maxAQI=temp$AQI_Max
+  polData$minCon=temp[,min]
+  polData$maxCon=temp[,max]
+  polData <- mutate(polData, aqi=(((maxAQI - minAQI)/(maxCon - minCon))*(polluent-minCon)+minAQI))
+  polData <- polData %>% mutate_at(vars(aqi), list(~ round(.)))
+  polData <- polData[-(4:8)]
+  return(polData)
+}
+
+# PM10_AQI
+PM10_AQI <- airPol %>% group_by(year,month,day) %>% summarize(polluent = mean(PM10))
+PM10_AQI <- PM10_AQI %>% mutate_at(vars(polluent), list(~ round(.)))
+PM10_AQI <- getAQI(PM10_AQI,aqiBreakpoints,4,"PM10_Min","PM10_Max",c("Good","Moderate","Unhealthy for Sensitive Groups","Unhealthy","Very unhealthy","Hazardous"))
+
+# PM2.5_AQI
+PM2.5_AQI <- airPol %>% group_by(year,month,day) %>% summarize(polluent = mean(PM2.5))
+PM2.5_AQI <- PM2.5_AQI %>% mutate_at(vars(polluent), list(~ round(.)))
+PM2.5_AQI <- getAQI(PM2.5_AQI,aqiBreakpoints,2,"PM2.5_Min","PM2.5_Max",c("Good","Moderate","Unhealthy for Sensitive Groups","Unhealthy","Very unhealthy","Hazardous"))
+
+# SO2_AQI
+SO2_AQI <- airPol %>% group_by(year,month,day) %>% summarize(polluent = mean(SO2))
+SO2_AQI <- SO2_AQI %>% mutate_at(vars(polluent), list(~ round(.)))
+SO2_AQI <- getAQI(SO2_AQI,aqiBreakpoints,8,"SO2_Min","SO2_Max",c("Good","Moderate","Unhealthy for Sensitive Groups","Unhealthy","Very unhealthy","Hazardous"))
+
+# NO2_AQI
+NO2_AQI <- airPol %>% group_by(year,month,day) %>% summarize(polluent = mean(NO2))
+NO2_AQI <- NO2_AQI %>% mutate_at(vars(polluent), list(~ round(.)))
+NO2_AQI <- getAQI(NO2_AQI,aqiBreakpoints,10,"NO2_Min","NO2_Max",c("Good","Moderate","Unhealthy for Sensitive Groups","Unhealthy","Very unhealthy","Hazardous"))
+
+# CO_AQI
+CO_AQI <- airPol %>% group_by(year,month,day) %>% summarize(polluent = mean(CO))
+CO_AQI <- CO_AQI %>% mutate_at(vars(polluent), list(~ round(.)))
+CO_AQI <- getAQI(CO_AQI,aqiBreakpoints,6,"CO_Min","CO_Max",c("Good","Moderate","Unhealthy for Sensitive Groups","Unhealthy","Very unhealthy","Hazardous"))
+
+#O3_1H_AQI 
+O3_1H_AQI <- airPol %>% select(1,2,3,10)
+colnames(O3_1H_AQI)[4] <- "polluent" #rename collumn
+O3_1H_AQI <- getAQI(O3_1H_AQI,aqiBreakpoints,12,"O3_Min_1H","O3_Max_1H",c("Good","Moderate","Unhealthy for Sensitive Groups","Unhealthy","Very unhealthy","Hazardous"))
+O3_1H_AQI <- O3_1H_AQI %>% group_by(year,month,day) %>% summarize(aqi = max(aqi))
+
+
+# O3_8H_AQI
+temp <- airPol %>% mutate( ints = cut( hour ,breaks = c(0,8,16,24) ,include.lowest = TRUE)) %>% group_by(year,month,day,ints) %>% summarise(mean = mean(O3))
+O3_8H_AQI <- temp %>% group_by(year,month,day) %>% summarise(polluent = max(mean))
+O3_8H_AQI <- O3_8H_AQI %>% mutate_at(vars(polluent), list(~ round(.)))
+O3_8H_AQI <- getAQI(O3_8H_AQI,aqiBreakpoints,14,"O3_Min_8H","O3_Max_8H",c("Good","Moderate","Unhealthy for Sensitive Groups","Unhealthy","Very unhealthy"))
+
+# O3_AQI
+O3_AQI <- O3_1H_AQI %>% select(1,2,3,4)
+O3_AQI$aqi_8H <- O3_8H_AQI$aqi
+```
+
+6. Build the data for the model, this is a simplified version of the data that means that we will not add the from the other stations. In this data we will have the following values calculated for each day:
+
+* The minimum and maximum temperature
+* The minimum and maximum pressure
+* The minimum and maximum DEWP
+* The maximum of rain
+* The maximum occurrence of the direction of the wind
+* The minimum and maximum WSPM
+* The AQI value from the day before
+* The AQI classification from the day before
+* The AQI value for that day
+* The AQI classification for that day
+* The corresponding weekday
+* The corresponding season
+* The corresponding month
+
+```{r eval=FALSE, include=FALSE}
+############ Get Data for model
+## temperature TEMP
+data <- airPol %>% group_by(year,month,day) %>% summarize(MinTemp = min(TEMP))
+temp <- airPol %>% group_by(year,month,day) %>% summarize(Max = max(TEMP))
+data$MaxTemp <- temp$Max
+
+## Pressure PRES
+temp <- airPol %>% group_by(year,month,day) %>% summarize(Min = min(PRES))
+data$MinPres <- temp$Min
+temp <- airPol %>% group_by(year,month,day) %>% summarize(Max = max(PRES))
+data$MaxPres <- temp$Max
+
+## DEWP
+temp <- airPol %>% group_by(year,month,day) %>% summarize(Min = min(DEWP))
+data$MinDewp <- temp$Min
+temp <- airPol %>% group_by(year,month,day) %>% summarize(Max = max(DEWP))
+data$MaxDewp <- temp$Max
+
+## RAIN
+temp <- airPol %>% group_by(year,month,day) %>% summarize(Max = max(RAIN))
+data$Rain <- temp$Max
+
+## WD*
+fun1 <- function(InVec) {
+  names(which.max(table(InVec)))
+}
+temp <- airPol %>% group_by(year,month,day) %>% summarize(wd = fun1(wd))
+data$WD <- temp$wd
+
+## WSPM
+temp <- airPol %>% group_by(year,month,day) %>% summarize(Min = min(WSPM))
+data$MinWspm <- temp$Min
+temp <- airPol %>% group_by(year,month,day) %>% summarize(Max = max(WSPM))
+data$MaxWspm <- temp$Max
+
+## Old Aqi
+data <- data[-1,]
+temp <- aqiData["aqi"]
+temp <- temp[-nrow(temp),]
+data$oldAqi <- temp$aqi
+
+## old Classification
+temp <- aqiData["classification"]
+temp <- temp[-nrow(temp),]
+data$oldClass <- temp$classification
+
+## aqi
+temp <- aqiData["aqi"]
+temp <- temp[-1,]
+data$aqi <- temp$aqi
+
+temp <- aqiData["classification"]
+temp <- temp[-1,]
+data$class <- temp$classification
+
+#Weekdays
+temp <- airPol %>% select(1,2,3)
+temp <- unique(temp[,1:3])
+temp <- temp[-1,]
+
+temp <- temp %>% ungroup(year)
+temp <- temp %>% ungroup(month)
+temp <- temp %>% ungroup(day)
+temp <- temp  %>% mutate(date = paste(as.character(year),as.character(month),as.character(day), sep = "-"))
+
+data$weekdays <- weekdays(as.Date(temp$date))
+temp <- temp %>% mutate(day = case_when(nchar(day) == 1 ~ paste("0",as.character(day),sep=""), TRUE ~as.character(day) ))
+temp <- mutate(temp, seasons=paste(as.character(month),as.character(day), sep = "."))
+data$season <- cut(as.numeric(temp$seasons),breaks = c("1.01","3.20","6.21","9.23","12.22","12.31"), labels = c("spring","summer","fall","winter","spring"),include.lowest = TRUE)
+
+#data <- data[,-1]
+#data <- data[,-2]
+#reorder
+data <- data[c(1,2,19,3,18,4,5,6,7,8,9,10,11,12,13,14,15,16,17)]
+
+```
+
+```{r eval=FALSE, include=FALSE}
+# Complete code for the first function
+load("Data_Aotizhongxin.RData")
+load("Data_Changping.RData")
+load("Data_Dingling.RData")
+load("Data_Dongsi.RData")
+load("Data_Guanyuan.RData")
+load("Data_Gucheng.RData")
+load("Data_Huairou.RData")
+load("Data_Nongzhanguan.RData")
+load("Data_Shunyi.RData")
+load("Data_Tiantan.RData")
+load("Data_Wanliu.RData")
+load("Data_Wanshouxigong.RData")
+
+f("DataExcel/PRSA_Data_Aotizhongxin_20130301-20170228.csv","O3_Data_Aotizhongxin.RData","Data_Aotizhongxin.RData")
+
+f("DataExcel/PRSA_Data_Changping_20130301-20170228.csv","O3_Data_Changping.RData","Data_Changping.RData")
+
+f("DataExcel/PRSA_Data_Dingling_20130301-20170228.csv","O3_Data_Dingling.RData","Data_Dingling.RData")
+
+f("DataExcel/PRSA_Data_Dongsi_20130301-20170228.csv","O3_Data_Dongsi.RData","Data_Dongsi.RData")
+
+f("DataExcel/PRSA_Data_Guanyuan_20130301-20170228.csv","O3_Data_Guanyuan.RData","Data_Guanyuan.RData")
+
+f("DataExcel/PRSA_Data_Huairou_20130301-20170228.csv","O3_Data_Huairou.RData","Data_Huairou.RData")
+
+f("DataExcel/PRSA_Data_Gucheng_20130301-20170228.csv","O3_Data_Gucheng.RData","Data_Gucheng.RData")
+
+f("DataExcel/PRSA_Data_Nongzhanguan_20130301-20170228.csv","O3_Data_Nongzhanguan.RData","Data_Nongzhanguan.RData")
+
+f("DataExcel/PRSA_Data_Shunyi_20130301-20170228.csv","O3_Data_Shunyi.RData","Data_Shunyi.RData")
+
+f("DataExcel/PRSA_Data_Tiantan_20130301-20170228.csv","O3_Data_Tiantan.RData","Data_Tiantan.RData")
+
+f("DataExcel/PRSA_Data_Wanliu_20130301-20170228.csv","O3_Data_Wanliu.RData","Data_Wanliu.RData")
+
+f("DataExcel/PRSA_Data_Wanshouxigong_20130301-20170228.csv","O3_Data_Wanshouxigong.RData","Data_Wanshouxigong.RData")
+
+f <- function(path, pathO3,final){
+  
+airPolution <- read.csv(path, header = TRUE)
+
+airPolution <- tbl_df(airPolution)
+airPolution %>% filter_any_na() %>% count()
+
+airPol <- drop_rows_any_na(airPolution)
+nrow(airPolution)
+nrow(airPol)
+# remove the row number
+airPol <-airPol[-1]
+
+#^## the values are on the 100's but the table is on 10's
+airPol <- mutate(airPol, CO = CO/100)
+airPol <- airPol %>% mutate_at(vars(CO), list(~ round(.)))
+
+# Remove rows that have polluents above the limite of the breaking table
+airPol <- airPol %>% mutate(PM10 = case_when(PM10 > 600 ~ 600, TRUE ~ PM10))
+airPol <- airPol %>% mutate(PM2.5 = case_when(PM2.5 > 500 ~ 500, TRUE ~ PM2.5))
+airPol <- airPol %>% mutate(SO2 = case_when(SO2 > 2620 ~ 2620, TRUE ~ SO2))
+airPol <- airPol %>% mutate(NO2 = case_when(NO2 > 940 ~ 940, TRUE ~ NO2))
+airPol <- airPol %>% mutate(CO = case_when(CO > 60 ~ 60, TRUE ~ CO))
+
+
+# Get AQI BreakPoint table
+aqiBreakpoints <- read.csv("DataExcel/breakpoints.csv", sep = ";", header = TRUE, na.strings = "?", dec = ",")
+
+getAQI <- function(polData,aqiData,indexPol,min,max,labelClass){
+  num <- as.numeric(unlist(polData[4]))
+  aqi <- as.numeric(unlist(aqiData[indexPol]))
+  aqiClass <- cut(num,breaks = aqi, labels = labelClass,include.lowest = TRUE)
+  temp <- data.frame()
+  for(class in aqiClass){
+    aqiValues <- aqiBreakpoints[aqiBreakpoints['Classification'] == class, c("AQI_Min","AQI_Max",min,max)] %>% drop_rows_any_na()
+    temp <- rbind(temp, aqiValues)
+  }
+  polData$minAQI=temp$AQI_Min
+  polData$maxAQI=temp$AQI_Max
+  polData$minCon=temp[,min]
+  polData$maxCon=temp[,max]
+  polData <- mutate(polData, aqi=(((maxAQI - minAQI)/(maxCon - minCon))*(polluent-minCon)+minAQI))
+  polData <- polData %>% mutate_at(vars(aqi), list(~ round(.)))
+  polData <- polData[-(4:8)]
+  return(polData)
+}
+
+# PM10_AQI
+PM10_AQI <- airPol %>% group_by(year,month,day) %>% summarize(polluent = mean(PM10))
+PM10_AQI <- PM10_AQI %>% mutate_at(vars(polluent), list(~ round(.)))
+PM10_AQI <- getAQI(PM10_AQI,aqiBreakpoints,4,"PM10_Min","PM10_Max",c("Good","Moderate","Unhealthy for Sensitive Groups","Unhealthy","Very unhealthy","Hazardous"))
+
+# PM2.5_AQI
+PM2.5_AQI <- airPol %>% group_by(year,month,day) %>% summarize(polluent = mean(PM2.5))
+PM2.5_AQI <- PM2.5_AQI %>% mutate_at(vars(polluent), list(~ round(.)))
+PM2.5_AQI <- getAQI(PM2.5_AQI,aqiBreakpoints,2,"PM2.5_Min","PM2.5_Max",c("Good","Moderate","Unhealthy for Sensitive Groups","Unhealthy","Very unhealthy","Hazardous"))
+
+# SO2_AQI
+SO2_AQI <- airPol %>% group_by(year,month,day) %>% summarize(polluent = mean(SO2))
+SO2_AQI <- SO2_AQI %>% mutate_at(vars(polluent), list(~ round(.)))
+SO2_AQI <- getAQI(SO2_AQI,aqiBreakpoints,8,"SO2_Min","SO2_Max",c("Good","Moderate","Unhealthy for Sensitive Groups","Unhealthy","Very unhealthy","Hazardous"))
+
+# NO2_AQI
+NO2_AQI <- airPol %>% group_by(year,month,day) %>% summarize(polluent = mean(NO2))
+NO2_AQI <- NO2_AQI %>% mutate_at(vars(polluent), list(~ round(.)))
+NO2_AQI <- getAQI(NO2_AQI,aqiBreakpoints,10,"NO2_Min","NO2_Max",c("Good","Moderate","Unhealthy for Sensitive Groups","Unhealthy","Very unhealthy","Hazardous"))
+
+# CO_AQI
+CO_AQI <- airPol %>% group_by(year,month,day) %>% summarize(polluent = mean(CO))
+CO_AQI <- CO_AQI %>% mutate_at(vars(polluent), list(~ round(.)))
+CO_AQI <- getAQI(CO_AQI,aqiBreakpoints,6,"CO_Min","CO_Max",c("Good","Moderate","Unhealthy for Sensitive Groups","Unhealthy","Very unhealthy","Hazardous"))
+
+# O3_1H_AQI
+O3_1H_AQI <- airPol %>% select(1,2,3,10)
+colnames(O3_1H_AQI)[4] <- "polluent" #rename collumn
+O3_1H_AQI <- getAQI(O3_1H_AQI,aqiBreakpoints,12,"O3_Min_1H","O3_Max_1H",c("Good","Moderate","Unhealthy for Sensitive Groups","Unhealthy","Very unhealthy","Hazardous"))
+O3_1H_AQI <- O3_1H_AQI %>% group_by(year,month,day) %>% summarize(aqi = max(aqi))
+
+# O3_8H_AQI
+temp <- airPol %>% mutate( ints = cut( hour ,breaks = c(0,8,16,24) ,include.lowest = TRUE)) %>% group_by(year,month,day,ints) %>% summarise(mean = mean(O3))
+O3_8H_AQI <- temp %>% group_by(year,month,day) %>% summarise(polluent = max(mean))
+O3_8H_AQI <- O3_8H_AQI %>% mutate_at(vars(polluent), list(~ round(.)))
+O3_8H_AQI <- getAQI(O3_8H_AQI,aqiBreakpoints,14,"O3_Min_8H","O3_Max_8H",c("Good","Moderate","Unhealthy for Sensitive Groups","Unhealthy","Very unhealthy"))
+
+# O3_AQI
+O3_AQI <- O3_1H_AQI %>% select(1,2,3,4)
+O3_AQI$aqi_8H <- O3_8H_AQI$aqi
+
+# Get all the aqi
+aqiData <- select(PM10_AQI,year,month,day,aqi)
+#rename collumn
+colnames(aqiData)[4] <- "PM10"
+aqiData$PM2.5=PM2.5_AQI$aqi
+aqiData$NO2=NO2_AQI$aqi
+aqiData$SO2=SO2_AQI$aqi
+aqiData$O3_1H=O3_1H_AQI$aqi
+aqiData$O3_8H=O3_8H_AQI$aqi
+#Get the max of each row
+aqiData$aqi = apply(aqiData[-(1:3)], MARGIN=1, FUN=max)
+aqiData$classification <- cut(unlist(aqiData["aqi"]),breaks = unlist(aqiBreakpoints["AQI_Max"]), labels = c("Good","Moderate","Unhealthy for Sensitive Groups","Unhealthy","Very unhealthy","Hazardous"),include.lowest = TRUE)
+
+
+############ Get Data for model
+
+## temperature TEMP
+data <- airPol %>% group_by(year,month,day) %>% summarize(MinTemp = min(TEMP))
+temp <- airPol %>% group_by(year,month,day) %>% summarize(Max = max(TEMP))
+data$MaxTemp <- temp$Max
+
+## Pressure PRES
+temp <- airPol %>% group_by(year,month,day) %>% summarize(Min = min(PRES))
+data$MinPres <- temp$Min
+temp <- airPol %>% group_by(year,month,day) %>% summarize(Max = max(PRES))
+data$MaxPres <- temp$Max
+
+## DEWP
+temp <- airPol %>% group_by(year,month,day) %>% summarize(Min = min(DEWP))
+data$MinDewp <- temp$Min
+temp <- airPol %>% group_by(year,month,day) %>% summarize(Max = max(DEWP))
+data$MaxDewp <- temp$Max
+
+## RAIN
+temp <- airPol %>% group_by(year,month,day) %>% summarize(Max = max(RAIN))
+data$Rain <- temp$Max
+
+## WD*
+fun1 <- function(InVec) {
+  names(which.max(table(InVec)))
+}
+temp <- airPol %>% group_by(year,month,day) %>% summarize(wd = fun1(wd))
+data$WD <- temp$wd
+
+## WSPM
+temp <- airPol %>% group_by(year,month,day) %>% summarize(Min = min(WSPM))
+data$MinWspm <- temp$Min
+temp <- airPol %>% group_by(year,month,day) %>% summarize(Max = max(WSPM))
+data$MaxWspm <- temp$Max
+
+## Old Aqi
+data <- data[-1,]
+temp <- aqiData["aqi"]
+temp <- temp[-nrow(temp),]
+data$oldAqi <- temp$aqi
+
+## old Classification
+temp <- aqiData["classification"]
+temp <- temp[-nrow(temp),]
+data$oldClass <- temp$classification
+
+## aqi
+temp <- aqiData["aqi"]
+temp <- temp[-1,]
+data$aqi <- temp$aqi
+
+temp <- aqiData["classification"]
+temp <- temp[-1,]
+data$class <- temp$classification
+
+#Weekdays
+temp <- airPol %>% select(1,2,3)
+temp <- unique(temp[,1:3])
+temp <- temp[-1,]
+
+temp <- temp %>% ungroup(year)
+temp <- temp %>% ungroup(month)
+temp <- temp %>% ungroup(day)
+temp <- temp  %>% mutate(date = paste(as.character(year),as.character(month),as.character(day), sep = "-"))
+
+data$weekdays <- weekdays(as.Date(temp$date))
+temp <- temp %>% mutate(day = case_when(nchar(day) == 1 ~ paste("0",as.character(day),sep=""), TRUE ~as.character(day) ))
+temp <- mutate(temp, seasons=paste(as.character(month),as.character(day), sep = "."))
+data$season <- cut(as.numeric(temp$seasons),breaks = c("1.01","3.20","6.21","9.23","12.22","12.31"), labels = c("spring","summer","fall","winter","spring"),include.lowest = TRUE)
+
+#data <- data[,-1]
+#data <- data[,-2]
+#reorder
+data <- data[c(1,2,19,3,18,4,5,6,7,8,9,10,11,12,13,14,15,16,17)]
+
+nameData <- data
+save(nameData, file=final)
+}
+
+```
+
+
+The second function 
+
+1. Receives a data table and adds the AQI classification values from the day before of all the other stations.
+2. Cleans the data of all the columns that were created during the adding of the new columns and converts the char columns in factors.
+
+```{r eval=FALSE, include=FALSE}
+addStations <- function(Data,pos){
+  test <- Data
+  temp <- Data$year
+  temp <- as.data.frame(temp)
+  
+  if(pos != 1){
+  test <- merge(Data, Data_Aotizhongxin[,c("year","month","day","oldClass")], by=c("year","month","day"), all.x = TRUE)
+  temp$aqi_Aotizhongxin <- test[,20]
+  }
+  if(pos != 2){
+  test <- merge(Data, Data_Changping[,c("year","month","day","oldClass")], by=c("year","month","day"), all.x = TRUE)
+  temp$aqi_Changping <- test[,20]
+  }
+  if(pos != 3){
+  test <- merge(Data, Data_Dingling[,c("year","month","day","oldClass")], by=c("year","month","day"), all.x = TRUE)
+  temp$aqi_Dingling <- test[,20]
+  }
+  if(pos != 4){
+  test <- merge(Data, Data_Dongsi[,c("year","month","day","oldClass")], by=c("year","month","day"), all.x = TRUE)
+  temp$aqi_Dongsi <- test[,20]
+  }
+  if(pos != 5){
+  test <- merge(Data, Data_Guanyuan[,c("year","month","day","oldClass")], by=c("year","month","day"), all.x = TRUE)
+  temp$aqi_Guanyuan <- test[,20]
+  }
+  if(pos != 6){
+  test <- merge(Data, Data_Gucheng[,c("year","month","day","oldClass")], by=c("year","month","day"), all.x = TRUE)
+  temp$aqi_Gucheng <- test[,20]
+  }
+  if(pos != 7){
+  test <- merge(Data, Data_Huairou[,c("year","month","day","oldClass")], by=c("year","month","day"), all.x = TRUE)
+  temp$aqi_Huairou <- test[,20]
+  }
+  if(pos != 8){
+  test <- merge(Data, Data_Nongzhanguan[,c("year","month","day","oldClass")], by=c("year","month","day"), all.x = TRUE)
+  temp$aqi_Nongzhanguan <- test[,20]
+  }
+  if(pos != 9){
+  test <- merge(Data, Data_Shunyi[,c("year","month","day","oldClass")], by=c("year","month","day"), all.x = TRUE)
+  temp$aqi_Shunyi <- test[,20]
+  }
+  if(pos != 10){
+  test <- merge(Data, Data_Tiantan[,c("year","month","day","oldClass")], by=c("year","month","day"), all.x = TRUE)
+  temp$aqi_Tiantan <- test[,20]
+  }
+  if(pos != 11){
+  test <- merge(Data, Data_Wanliu[,c("year","month","day","oldClass")], by=c("year","month","day"), all.x = TRUE)
+  temp$aqi_Wanliu <- test[,20]
+  }
+  if(pos != 12){
+  test <- merge(Data, Data_Wanshouxigong[,c("year","month","day","oldClass")], by=c("year","month","day"), all.x = TRUE)
+  temp$aqi_Wanshouxigong<- test[,20]
+  }
+
+  # Creates id for merging
+  Data$id <- c(1:nrow(Data))
+  temp$id <- c(1:nrow(Data))
+  Data <- merge(Data, temp,all.x=TRUE)
+  return(Data)
+}
+
+Data <- addStations(Data_Aotizhongxin,1)
+Data_Aotizhongxin <-Data
+rm(Data)
+Data <- addStations(Data_Changping,2)
+Data_Changping <-Data
+rm(Data)
+Data <- addStations(Data_Dingling ,3)
+Data_Dingling <- Data
+rm(Data)
+Data <- addStations(Data_Dongsi,4)
+Data_Dongsi <- Data
+rm(Data)
+Data <- addStations(Data_Guanyuan,5)
+Data_Guanyuan <- Data
+rm(Data)
+Data <- addStations(Data_Gucheng,6)
+Data_Gucheng <- Data
+rm(Data)
+Data <- addStations(Data_Huairou,7)
+Data_Huairou <- Data
+rm(Data)
+Data <- addStations(Data_Nongzhanguan,8)
+Data_Nongzhanguan <- Data
+rm(Data)
+Data <- addStations(Data_Shunyi,9)
+Data_Shunyi <- Data
+rm(Data)
+Data <- addStations(Data_Tiantan,10)
+Data_Tiantan <- Data
+rm(Data)
+Data <- addStations(Data_Wanliu,11)
+Data_Wanliu <- Data
+rm(Data)
+Data <- addStations(Data_Wanshouxigong,12)
+Data_Wanshouxigong<- Data
+
+
+clean <- function(Data){
+  Data <- Data[,-c(1,2,5,21)]
+  Data <- as.data.frame(Data)
+  Data$weekdays <- as.factor(Data$weekdays)
+  Data$WD <- as.factor(Data$WD)
+  return(Data)
+}
+
+
+Data_Aotizhongxin <- clean(Data_Aotizhongxin)
+save(Data_Aotizhongxin, file = "DataTable/Data_Aotizhongxin_All.RData")
+
+Data_Changping <- clean(Data_Changping)
+save(Data_Changping, file = "DataTable/Data_Changping_All.RData")
+
+Data_Dingling <- clean(Data_Dingling)
+save(Data_Dingling, file = "DataTable/Data_Dingling_All.RData")
+
+Data_Dongsi<- clean(Data_Dongsi)
+save(Data_Dongsi, file = "DataTable/Data_Dongsi_All.RData")
+
+Data_Guanyuan<- clean(Data_Guanyuan)
+save(Data_Guanyuan, file = "DataTable/Data_Guanyuan_All.RData")
+
+Data_Gucheng<- clean(Data_Gucheng)
+save(Data_Gucheng, file = "DataTable/Data_Gucheng_All.RData")
+
+Data_Huairou<- clean(Data_Huairou)
+save(Data_Huairou, file = "DataTable/Data_Huairou_All.RData")
+
+Data_Nongzhanguan<- clean(Data_Nongzhanguan)
+save(Data_Nongzhanguan, file = "DataTable/Data_Nongzhanguan_All.RData")
+
+Data_Shunyi<- clean(Data_Shunyi)
+save(Data_Shunyi, file = "DataTable/Data_Shunyi_All.RData")
+
+Data_Tiantan<- clean(Data_Tiantan)
+save(Data_Tiantan, file = "DataTable/Data_Tiantan_All.RData")
+
+Data_Wanliu<- clean(Data_Wanliu)
+save(Data_Wanliu, file = "DataTable/Data_Wanliu_All.RData")
+
+Data_Wanshouxigong<- clean(Data_Wanshouxigong)
+save(Data_Wanshouxigong, file = "DataTable/Data_Wanshouxigong_All.RData")
+
+```
+
+## Exploratory Data Analysis
+Our data exploration consisted of seeing how air pollution changed in terms of certain parameters.
+By counting the number of AQI bigger then 100.
+```{r echo=FALSE}
+load("LoadData/Data_Huairou.RData")
+Data_Huairou %>% group_by(season) %>% filter(aqi > 100) %>% count()
+```
+We get that the fall is the season that has less polution and if we put this information into to a graph.
+```{r echo=FALSE, tidy=TRUE}
+ggplot(subset(Data_Huairou, aqi>100),aes(x=season,fill=class)) + geom_bar() + ggtitle("Number of bad air classifications per season")
+```
+we see that besides the fall being better in terms of air quality it also is the season that doens´t reach the maximun of the AQI classification.  
+
+By doing the same as before but instead of the season we use the weekdays, we don´t see a significant different between them.
+```{r echo=FALSE}
+Data_Huairou %>% group_by(weekdays) %>% filter(aqi > 100) %>% count()
+```
+
+
+## Predictive Modelling: experimental setup and obtained results
+Because the object of the objective was to predict the level of air pollution it was decided that we were going to predict the AQI classification that is a nominal variable. To do that we will make classification predicts using the following methods:
+
+ * Naive Bayes
+ * Decision Trees
+ * k-Nearest Neighbours
+ * Support Vector Machines
+And to compare them we used the library Performance Estimation.
+
+To start with the predictions we first load the data and remove the column that as the AQI values because we only want the model to predict the classification of the AQI.  
+Next, we separate data into 70/30. 70% of the data will be used for training and the other 30% will be used to test our model.  
+```{r include=FALSE}
+load("LoadData/Data_Huairou_All.RData")
+model <- Data_Huairou
+model <- model[,-16]
+model <- model[,-c(17:27)]
+idx_train = sample(1:nrow(model),0.7*nrow(model))
+tr_model <- model[idx_train,]
+tst_model <- model[-idx_train,]
+set.seed(967)
+```
+
+To use these methods we need to pass them a few parameters:
+
+* Using the decision tree we will add the parameter of max depth form 1 to 8 to see which value of depth is the best to predict the data.
+* Using the k-Nearest Neighbours we need to give it a k. To tried to get the best one we run a function that iterates k from 2 to 200 and predicts the data. We then select the k that gives us better accuracy.
+```{r eval=FALSE, include=FALSE}
+getMax <- function(){
+    max = 0
+    idx = 0
+    for(i in (1:200)){
+      knnModel = knn3(class ~ ., model, k = i)
+      preds <- predict(knnModel, tst_model, type = "class")
+      confM <- table(tst_model[,16],preds)
+      acc <- sum(diag(confM))/sum(confM)
+      if(acc > max){
+        max <-  acc
+        idx <- i
+      }
+    }
+    return(idx)
+  }
+  
+maxK <- getMax()
+```
+* Using the Support Vector Machines we will predict using different types of kernels (linear, polynomial, radial, sigmoid)
+
+This is the result of this estimation for the data from the Huairou station: 
+```{r eval=FALSE, include=FALSE}
+res <- performanceEstimation(PredTask(class ~ ., model),
+                             c(workflowVariants(learner = "rpart",
+                                                learner.pars = list(maxdepth = 1:8),
+                                                predictor.pars = list(type = "class")),
+                               workflowVariants(learner = "rpart",predictor.pars = list(type = "class")),
+                               workflowVariants(learner="naiveBayes"),
+                               workflowVariants(learner="knn3",
+                                        learner.pars = list(k = maxK),
+                                        predictor.pars = list(type = "class")),
+                               workflowVariants(learner = "svm",
+                                                learner.pars = list(kernel = c("linear", "polynomial", "radial", "sigmoid")))
+                               ),
+                               EstimationTask(metrics = c("acc")))
+```
+
+```{r echo=FALSE}
+show("Workflow: svm.v1")
+show("Estimate: 0.5145833")
+```
+
+Even that the best accuracy was 0.5145833 it was still just a little above 50% of accuracy and that was not a satisfatory value for a model so we tried to repeat the same estimation, with the same parameters but including the AQI classification from the other stations.
+```{r echo=FALSE}
+show("Workflow: svm.v3")
+show("Estimate: 0.4460870")
+```
+The accuracy went down. To see if this just happened is this data or if adding the AQI classification made our model worse was tried to run the same performance estimation with the data form Nongzhanguan.
+
+```{r echo=FALSE}
+show("Without other stations")
+show("Workflow: svm.v1")
+show("Estimate: 0.5145833")
+show("With other stations")
+show("Workflow: svm.v3")
+show("Estimate: 0.4947826")
+
+```
+The results were the same as before. The model is better at predicting the AQI classification if the data has only data from those stations.
+
+Not being happy with these predictions we decided to try a different method. Instead of having the model predict 6 classes, we would be putting the model predicting only two classes: Safe or Not Safe. This classification would let people know if the air quality of the air was safe for them to go outside.  
+A safe classification corresponds to the AQI value been between 0-100 (classification good and moderate). This new tactic was tested on the data from the Huairou station, and this was the result:
+
+```{r echo=FALSE}
+show("Without other stations")
+show("Workflow: svm.v1")
+show("Estimate: 0.7591304")
+show("With other stations")
+show("Workflow: svm.v1")
+show("Estimate: 0.7704348")
+```
+
+Beside having a much better accuracy, the accuracy increases if we add the data from other stations. We made a table showing each station with their model values. 
+```{r echo=FALSE}
+load("LoadData/StationsModel.RData")
+kable(StationsModel, caption = "Model for each Station") %>% kable_styling(latex_options="scale_down") %>% kable_styling(latex_options = "HOLD_position")
+```
+After examining this table we can see that the value between the models when using the data form the other stations sometimes gives us a better prediction and sometimes don’t. The model that was chosen was the Support Vector Machines with a linear kernel (svm.v1). This model gives the best accuracy when predicting the data. But we think it would be worthed to also use the model Support Vector Machine with a radial kernel because these two appear a lot in the table.
+
+## Conclusions, Shortcomings and Future Work
+The average final data table that was used had only 1400 rows and if we had more data the predictions
+could get more precise. Our future work will involve getting more data and getting a prediction of at least 90% so that people can feel secure when seeing our predictions.
