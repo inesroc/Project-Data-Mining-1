@@ -90,7 +90,7 @@ counting the number of AQI bigger then 100.
 
 We get that the fall is the season that has less polution and if we put this information into to a graph.
 
-![image](https://drive.google.com/uc?export=view&id=1NSeKQdABko6iy5-6Pf0tdYrRT5mnjrgf)
+![Alt text](https://drive.google.com/uc?export=view&id=1NSeKQdABko6iy5-6Pf0tdYrRT5mnjrgf)
 
 we see that besides the fall being better in terms of air quality it also is the season that doens ́t reach the
 maximun of the AQI classification.
