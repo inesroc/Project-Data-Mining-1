@@ -1,6 +1,7 @@
 # Prediction of Air Pollution
 
-####  Inês Rocha (2019)
+###  Inês Rocha 
+####  Data Mining I, Faculdade de Ciências (2019)
 
 ### Introduction
 
